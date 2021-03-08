@@ -1,4 +1,8 @@
-import os, system, strutils
+import os, system, strutils, sequtils
+
+type
+  GameRegistry* = object
+    items*: seq[string]
 
 type
   MinecraftMod* = object
@@ -8,13 +12,127 @@ type
     output*: string
     controller*: string
     varcontroller*: string
+    registered*: GameRegistry
 
-proc createItem*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name: string)=
-  var modid = modinfo.modid;
-  var classpath = modinfo.classpath;
-  echo "- предмет "&name&" добавлен"
+proc forceWrite*(dir, filename, data: string)=
+  if not existsDir(dir): 
+    createDir(dir)
+  writeFile(dir & filename, data)
+
+proc writeLangFile*(modinfo: MinecraftMod) =
+  var langdir = getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\lang\\";
+  forceWrite(langdir, "en_us.lang", "")
+  forceWrite(langdir, "ru_ru.lang", "")
+
+proc writeLangFile*(modinfo: MinecraftMod, key, value: string) =
+  var langdir = getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\lang\\";
+  forceWrite(langdir, "en_us.lang", readFile(langdir & "en_US.lang") & "\n" & key & "=" & value)
+  forceWrite(langdir, "ru_ru.lang", readFile(langdir & "ru_RU.lang") & "\n" & key & "=" & value)
+
+proc createBlock*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name, textname: string, order: int) =
+  echo "- блок "&name&" добавлен"
+  modinfo.writeLangFile("tile."&name&".name",textname)
   var code = """
-package """ & classpath & classprefix & """;
+package """ & modinfo.classpath & classprefix & """;
+
+import net.minecraftforge.fml.relauncher.SideOnly;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.common.registry.GameRegistry;
+import net.minecraftforge.client.model.ModelLoader;
+import net.minecraftforge.client.event.ModelRegistryEvent;
+
+import net.minecraft.item.ItemBlock;
+import net.minecraft.item.Item;
+import net.minecraft.client.renderer.block.model.ModelResourceLocation;
+import net.minecraft.block.material.Material;
+import net.minecraft.block.SoundType;
+import net.minecraft.block.Block;
+
+import """ & modinfo.classpath & """.""" & modinfo.controller & """;
+import """ & modinfo.classpath & """.tabs.Tab""" & creativetabclassname & """;
+
+@""" & modinfo.controller & """.ModElement.Tag
+public class """ & classname & """ extends """ & modinfo.controller & """.ModElement {
+	@GameRegistry.ObjectHolder("""" & modinfo.modid & """:""" & name & """")
+	public static final Block block = null;
+	public """ & classname & """(""" & modinfo.controller & """ instance) {
+		super(instance, """ & $order & """);
+	}
+
+	@Override
+	public void initElements() {
+		elements.blocks.add(() -> new BlockCustom().setRegistryName("""" & name & """"));
+		elements.items.add(() -> new ItemBlock(block).setRegistryName(block.getRegistryName()));
+	}
+
+	@SideOnly(Side.CLIENT)
+	@Override
+	public void registerModels(ModelRegistryEvent event) {
+		ModelLoader.setCustomModelResourceLocation(Item.getItemFromBlock(block), 0,
+				new ModelResourceLocation("""" & modinfo.modid & """:""" & name & """", "inventory"));
+		ModelLoader.setCustomModelResourceLocation(Item.getItemFromBlock(block), 0,
+				new ModelResourceLocation("""" & modinfo.modid & """:""" & name & """", "normal"));
+	}
+	public static class BlockCustom extends Block {
+		public BlockCustom() {
+			super(Material.IRON);
+			setUnlocalizedName("""" & name & """");
+			setSoundType(SoundType.METAL);
+			setHardness(1F);
+			setResistance(10F);
+			setLightLevel(0F);
+			setLightOpacity(255);
+			setCreativeTab(Tab""" & creativetabclassname & """.tab);
+		}
+	}
+}"""
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & classprefix.replace(".","\\") & "\\", classname & ".java", code)
+  var jsonData = """
+{
+  "parent": """" & modinfo.modid & """:block/""" & name & """",
+  "display": {
+    "thirdperson": {
+      "rotation": [
+        10,
+        -45,
+        170
+      ],
+      "translation": [
+        0,
+        1.5,
+        -2.75
+      ],
+      "scale": [
+        0.375,
+        0.375,
+        0.375
+      ]
+    }
+  }
+}
+"""
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\models\\item\\", name & ".json", jsonData)
+  var jsonDataBlock = """
+{
+  "parent": "block/cube",
+  "textures": {
+    "down": """" & modinfo.modid & """:blocks/""" & name & """",
+    "up": """" & modinfo.modid & """:blocks/""" & name & """",
+    "north": """" & modinfo.modid & """:blocks/""" & name & """",
+    "east": """" & modinfo.modid & """:blocks/""" & name & """",
+    "south": """" & modinfo.modid & """:blocks/""" & name & """",
+    "west": """" & modinfo.modid & """:blocks/""" & name & """",
+    "particle": """" & modinfo.modid & """:blocks/""" & name & """"
+  }
+}
+"""
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\models\\block\\", name & ".json", jsonDataBlock)
+
+proc createItem*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name, textname: string, order: int) =
+  echo "- предмет "&name&" добавлен"
+  modinfo.writeLangFile("item."&name&".name",textname)
+  var code = """
+package """ & modinfo.classpath & classprefix & """;
 
 import net.minecraftforge.fml.relauncher.SideOnly;
 import net.minecraftforge.fml.relauncher.Side;
@@ -35,7 +153,7 @@ public class """ & classname & """ extends """ & modinfo.controller & """.ModEle
 	@GameRegistry.ObjectHolder('""" & modinfo.modid & """:""" & name & """')
 	public static final Item block = null;
 	public """ & classname & """(""" & modinfo.controller & """ instance) {
-		super(instance, 28);
+		super(instance, """ & $order & """);
 	}
 
 	@Override
@@ -74,13 +192,7 @@ public class """ & classname & """ extends """ & modinfo.controller & """.ModEle
 	}
 }"""
   code = code.replace("'","\"")
-  var javadestination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & classpath.replace(".","\\") & classprefix.replace(".","\\") & "\\"
-  if not existsDir(javadestination):
-    createDir(javadestination)
-  writeFile(javadestination & classname & ".java", code)
-  var resourceLocation = getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\models\\item\\"
-  if not existsDir(resourceLocation):
-    createDir(resourceLocation)
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & classprefix.replace(".","\\") & "\\", classname & ".java", code)
   var jsonData = """
 {
 	"parent": "item/generated",
@@ -89,7 +201,7 @@ public class """ & classname & """ extends """ & modinfo.controller & """.ModEle
 	}
 }
 """
-  writeFile(resourceLocation & name & ".json",jsonData)
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\models\\item\\", name & ".json", jsonData)
 
 proc createTab*(modinfo: MinecraftMod, classname, itemlogoclassname, itemlogoclasspath: string) =
   echo "Создание набора: "&classname
@@ -130,10 +242,7 @@ public class Tab""" & classname & """ extends """ & modinfo.controller & """.Mod
 	public static CreativeTabs tab;
 }
 """
-  var javadestination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\tabs\\"
-  if not existsDir(javadestination):
-    createDir(javadestination)
-  writeFile(javadestination & "Tab" & classname & ".java", code)
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\tabs\\", "Tab" & classname & ".java", code)
 
 proc generateMainClass*(modinfo: MinecraftMod)=
   echo "Создание основного класса: " & modinfo.name
@@ -244,10 +353,7 @@ public class """ & modinfo.name & """ {
 		FluidRegistry.enableUniversalBucket();
 	}
 }"""
-  var javadestination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\"
-  if not existsDir(javadestination):
-    createDir(javadestination)
-  writeFile(javadestination & modinfo.name & ".java", code)
+  forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\", modinfo.name & ".java", code)
 
 proc generateProxies*(modinfo: MinecraftMod) =
   var clientproxy = """
@@ -319,12 +425,10 @@ public interface IProxy""" & modinfo.name & """ {
 
 	void serverLoad(FMLServerStartingEvent event);
 }"""
-  var javadestination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\proxies\\"
-  if not existsDir(javadestination):
-    createDir(javadestination)
-  writeFile(javadestination & "IProxy" & modinfo.name & ".java", iproxy)
-  writeFile(javadestination & "ServerProxy" & ".java", serverproxy)
-  writeFile(javadestination & "ClientProxy" & ".java", clientproxy)
+  var destination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\proxies\\"
+  forceWrite(destination, "IProxy" & modinfo.name & ".java", iproxy)
+  forceWrite(destination, "ServerProxy" & ".java", serverproxy)
+  forceWrite(destination, "ClientProxy" & ".java", clientproxy)
 
 proc generateControllers*(modinfo: MinecraftMod) =
   var code = """
@@ -516,10 +620,8 @@ public class """ & modinfo.controller & """ implements IFuelHandler, IWorldGener
 		}
 	}
 }"""
-  var javadestination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\"
-  if not existsDir(javadestination):
-    createDir(javadestination)
-  writeFile(javadestination & modinfo.controller & ".java", code)
+  var destination = getCurrentDir() & "\\" & modinfo.output & "\\main\\java\\" & modinfo.classpath.replace(".","\\") & "\\"
+  forceWrite(destination, modinfo.controller & ".java", code)
   var vcon = """
 package """ & modinfo.classpath & """;
 
@@ -666,10 +768,7 @@ public class """ & modinfo.varcontroller & """ {
 		}
 	}
 }"""
-  if not existsDir(javadestination):
-    createDir(javadestination)
-  writeFile(javadestination & modinfo.varcontroller & ".java", vcon)
-
+  forceWrite(destination, modinfo.varcontroller & ".java", vcon)
 
 proc deploy*(modinfo: MinecraftMod): MinecraftMod =
   var modout = modinfo
@@ -679,12 +778,13 @@ proc deploy*(modinfo: MinecraftMod): MinecraftMod =
   modout.generateMainClass()
   modout.generateProxies()
   modout.generateControllers()
+  modout.writeLangFile()
   return modout
 
 proc createMaterial*(modinfo: MinecraftMod, classname: string) =
   var name = classname.toLower()
   echo "Создание материала: "&classname
-  createItem(modinfo, ".materials."&name, "Materials", classname&"Rod", name&"_rod")
-  createItem(modinfo, ".materials."&name, "Materials", classname&"Dust", name&"_dust")
-  createItem(modinfo, ".materials."&name, "Materials", classname&"Coil", name&"_coil")
-  createItem(modinfo, ".materials."&name, "Materials", classname&"Ingot", name&"_ingot")
+  modinfo.createItem(".materials."&name, "Materials", classname&"Wire", name&"_wire", classname&" "&"Wire", 4)
+  modinfo.createItem(".materials."&name, "Materials", classname&"Dust", name&"_dust", classname&" "&"Dust", 2)
+  modinfo.createItem(".materials."&name, "Materials", classname&"Coil", name&"_coil", classname&" "&"Coil", 3)
+  modinfo.createItem(".materials."&name, "Materials", classname&"Ingot", name&"_ingot", classname&" "&"Ingot", 1)
