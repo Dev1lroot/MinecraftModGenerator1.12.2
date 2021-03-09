@@ -13,6 +13,13 @@ type
     controller*: string
     varcontroller*: string
     registered*: GameRegistry
+type
+  WorldGeneration* = object
+    generate*: bool
+    maxHeight*: int
+    minHeight*: int
+    quantity*: int
+    replaceable*: string
 
 proc forceWrite*(dir, filename, data: string)=
   if not existsDir(dir): 
@@ -29,7 +36,7 @@ proc writeLangFile*(modinfo: MinecraftMod, key, value: string) =
   forceWrite(langdir, "en_us.lang", readFile(langdir & "en_US.lang") & "\n" & key & "=" & value)
   forceWrite(langdir, "ru_ru.lang", readFile(langdir & "ru_RU.lang") & "\n" & key & "=" & value)
 
-proc createBlock*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name, textname: string, order: int) =
+proc createBlock*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name, textname: string, order: int, worldgen: WorldGeneration) =
   echo "- блок "&name&" добавлен"
   modinfo.writeLangFile("tile."&name&".name",textname)
   var code = """
@@ -41,12 +48,24 @@ import net.minecraftforge.fml.common.registry.GameRegistry;
 import net.minecraftforge.client.model.ModelLoader;
 import net.minecraftforge.client.event.ModelRegistryEvent;
 
+import net.minecraft.world.gen.feature.WorldGenMinable;
+import net.minecraft.world.gen.IChunkGenerator;
+import net.minecraft.world.chunk.IChunkProvider;
+import net.minecraft.world.World;
+import net.minecraft.world.IBlockAccess;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.NonNullList;
+import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.Item;
+import net.minecraft.init.Blocks;
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.SoundType;
 import net.minecraft.block.Block;
+
+import java.util.Random;
 
 import """ & modinfo.classpath & """.""" & modinfo.controller & """;
 import """ & modinfo.classpath & """.tabs.Tab""" & creativetabclassname & """;
@@ -72,8 +91,34 @@ public class """ & classname & """ extends """ & modinfo.controller & """.ModEle
 				new ModelResourceLocation("""" & modinfo.modid & """:""" & name & """", "inventory"));
 		ModelLoader.setCustomModelResourceLocation(Item.getItemFromBlock(block), 0,
 				new ModelResourceLocation("""" & modinfo.modid & """:""" & name & """", "normal"));
+	}"""
+  if worldgen.generate == true:
+    code = code & """
+	@Override
+	public void generateWorld(Random random, int chunkX, int chunkZ, World world, int dimID, IChunkGenerator cg, IChunkProvider cp) {
+		boolean dimensionCriteria = false;
+		if (dimID == 0)
+			dimensionCriteria = true;
+		if (!dimensionCriteria)
+			return;
+		for (int i = 0; i < 3; i++) {
+			int x = chunkX + random.nextInt(16);
+			int y = random.nextInt(""" & $(worldgen.maxHeight - worldgen.minHeight) & """) + """ & $worldgen.minHeight & """;
+			int z = chunkZ + random.nextInt(16);
+			(new WorldGenMinable(block.getDefaultState(), """ & $worldgen.quantity & """, new com.google.common.base.Predicate<IBlockState>() {
+				public boolean apply(IBlockState blockAt) {
+					boolean blockCriteria = false;
+					IBlockState require;
+					if (blockAt.getBlock() == Blocks.""" & worldgen.replaceable &  """.getDefaultState().getBlock())
+						blockCriteria = true;
+					return blockCriteria;
+				}
+			})).generate(world, random, new BlockPos(x, y, z));
+		}
 	}
-	public static class BlockCustom extends Block {
+	"""
+  code = code & """
+public static class BlockCustom extends Block {
 		public BlockCustom() {
 			super(Material.IRON);
 			setUnlocalizedName("""" & name & """");
@@ -127,6 +172,9 @@ public class """ & classname & """ extends """ & modinfo.controller & """.ModEle
 }
 """
   forceWrite(getCurrentDir() & "\\" & modinfo.output & "\\main\\resources\\assets\\" & modinfo.modid & "\\models\\block\\", name & ".json", jsonDataBlock)
+
+proc createBlock*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name, textname: string, order: int) =
+  createBlock(modinfo, classprefix, creativetabclassname, classname, name, textname, order, WorldGeneration(generate:false))
 
 proc createItem*(modinfo: MinecraftMod, classprefix, creativetabclassname, classname, name, textname: string, order: int) =
   echo "- предмет "&name&" добавлен"
